@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Blind Type — learn to type without looking down</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1>Blind Type</h1>
+      <div class="topbar-actions">
+        <button id="themeToggle" class="ghost-btn" title="Toggle theme">◑</button>
+      </div>
+    </header>
+
+    <nav class="stages" id="stageNav" aria-label="Lessons"></nav>
+
+    <main class="stage-panel">
+      <div class="stage-info">
+        <h2 id="stageTitle">Home Row</h2>
+        <p id="stageBlurb">The eight keys your fingers rest on.</p>
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat"><span class="stat-value" id="statWpm">0</span><span class="stat-label">WPM</span></div>
+        <div class="stat"><span class="stat-value" id="statAccuracy">100%</span><span class="stat-label">Accuracy</span></div>
+        <div class="stat"><span class="stat-value" id="statStreak">0</span><span class="stat-label">Streak</span></div>
+        <div class="stat"><span class="stat-value" id="statBest">0</span><span class="stat-label">Best WPM</span></div>
+      </div>
+
+      <div class="prompt-wrap" id="promptWrap" tabindex="0">
+        <div class="prompt" id="prompt" aria-live="off"></div>
+        <input id="typingInput" class="sr-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Typing input" />
+        <div class="prompt-hint" id="promptHint">Click here and start typing</div>
+      </div>
+
+      <div class="controls">
+        <label class="toggle">
+          <input type="checkbox" id="blindToggle" />
+          <span>Blind mode (hide keyboard)</span>
+        </label>
+        <button id="restartBtn" class="ghost-btn">New text ↻</button>
+        <button id="resetBtn" class="ghost-btn danger">Reset progress</button>
+      </div>
+
+      <div class="keyboard-wrap" id="keyboardWrap">
+        <div class="finger-hint" id="fingerHint">&nbsp;</div>
+        <div class="keyboard" id="keyboard"></div>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
