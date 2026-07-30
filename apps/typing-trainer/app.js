@@ -375,7 +375,9 @@
     if (!state.startTime) state.startTime = Date.now();
 
     const expected = state.target[state.cursor];
-    if (e.key === expected) {
+    // Case-insensitive: this trains finger position, not shift-key
+    // precision, so Caps Lock or either case of a letter should count.
+    if (e.key.toLowerCase() === expected.toLowerCase()) {
       markCorrect(state.cursor);
       state.cursor += 1;
       state.correctCount += 1;
