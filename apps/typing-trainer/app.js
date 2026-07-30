@@ -9,7 +9,7 @@
     {
       id: "home",
       title: "Home Row",
-      blurb: "The eight keys your fingers rest on: a s d f g h j k l.",
+      blurb: "Your eight resting keys — a s d f j k l ; — plus the index reaches g and h.",
       unlockWpm: 12,
       words: [
         "dad", "sad", "lad", "fall", "hall", "gala", "flag", "flask", "glass",
@@ -118,7 +118,7 @@
   }
 
   function saveProgress(p) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); } catch (_) { /* storage unavailable */ }
   }
 
   let progress = loadProgress();
@@ -322,7 +322,7 @@
     highlightKey(state.target[0]);
     updateStats();
     input.value = "";
-    promptHint.textContent = "Click here and start typing";
+    promptHint.textContent = "Don't look down — just start typing";
   }
 
   function completeRound() {
@@ -357,6 +357,7 @@
   // ---------------------------------------------------------------------
   function handleKeydown(e) {
     if (state.finished) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return; // leave browser shortcuts alone
     if (e.key === "Backspace") {
       e.preventDefault();
       if (state.cursor > 0) {
@@ -398,11 +399,13 @@
   // ---------------------------------------------------------------------
   // Wiring
   // ---------------------------------------------------------------------
+  // Listen on document rather than a focused element: focusing an
+  // invisible input programmatically is unreliable inside sandboxed
+  // iframes (e.g. published Artifacts), so typing must work regardless
+  // of which element technically has focus.
+  document.addEventListener("keydown", handleKeydown);
   promptWrap.addEventListener("click", () => input.focus());
-  input.addEventListener("keydown", handleKeydown);
   input.addEventListener("paste", (e) => e.preventDefault());
-  input.addEventListener("focus", () => { promptHint.textContent = "Type the text above — don't look down!"; });
-  input.addEventListener("blur", () => { if (!state.finished) promptHint.textContent = "Click here to keep typing"; });
 
   restartBtn.addEventListener("click", startRound);
 
@@ -424,12 +427,14 @@
     const current = root.getAttribute("data-theme");
     const next = current === "dark" ? "light" : "dark";
     root.setAttribute("data-theme", next);
-    localStorage.setItem("blindtype.theme", next);
+    try { localStorage.setItem("blindtype.theme", next); } catch (_) { /* storage unavailable */ }
   });
 
   (function initTheme() {
-    const saved = localStorage.getItem("blindtype.theme");
-    if (saved) document.documentElement.setAttribute("data-theme", saved);
+    try {
+      const saved = localStorage.getItem("blindtype.theme");
+      if (saved) document.documentElement.setAttribute("data-theme", saved);
+    } catch (_) { /* storage unavailable */ }
   })();
 
   // ---------------------------------------------------------------------
