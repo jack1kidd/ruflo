@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ruflo Tower Defense</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="hud">
+      <div class="hud-stat"><span class="label">Gold</span><span id="stat-gold">0</span></div>
+      <div class="hud-stat"><span class="label">Lives</span><span id="stat-lives">0</span></div>
+      <div class="hud-stat"><span class="label">Wave</span><span id="stat-wave">0 / 0</span></div>
+      <div class="hud-controls">
+        <button id="btn-start-wave">Start Wave</button>
+        <button id="btn-speed">Speed 1x</button>
+        <button id="btn-pause">Pause</button>
+      </div>
+    </header>
+
+    <main id="play-area">
+      <canvas id="game-canvas" width="720" height="480"></canvas>
+
+      <aside id="side-panel">
+        <h2>Towers</h2>
+        <div id="tower-shop"></div>
+
+        <div id="selection-panel" class="hidden">
+          <h2>Selected Tower</h2>
+          <div id="selection-details"></div>
+          <button id="btn-upgrade">Upgrade</button>
+          <button id="btn-sell">Sell</button>
+        </div>
+      </aside>
+    </main>
+
+    <div id="overlay" class="hidden">
+      <div id="overlay-box">
+        <h1 id="overlay-title"></h1>
+        <p id="overlay-message"></p>
+        <button id="btn-restart">Play Again</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

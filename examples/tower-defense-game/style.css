@@ -1,0 +1,252 @@
+:root {
+  --bg: #0f1420;
+  --panel: #161d2e;
+  --panel-border: #2a3550;
+  --text: #e7ecf7;
+  --muted: #93a0c0;
+  --accent: #4ea1ff;
+  --gold: #f5c542;
+  --danger: #ff5d5d;
+  --good: #4fd67b;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+#app {
+  width: 100%;
+  max-width: 1000px;
+}
+
+#hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px 10px 0 0;
+  padding: 10px 16px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.hud-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 70px;
+}
+
+.hud-stat .label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hud-stat span:last-child {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+#stat-gold { color: var(--gold); }
+#stat-lives { color: var(--danger); }
+
+.hud-controls {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+button {
+  background: var(--accent);
+  color: #06101f;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+  transition: transform 0.05s ease, opacity 0.15s ease;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#play-area {
+  display: flex;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  overflow: hidden;
+}
+
+#game-canvas {
+  display: block;
+  background: #1a2136;
+  cursor: pointer;
+}
+
+#side-panel {
+  width: 220px;
+  padding: 14px;
+  border-left: 1px solid var(--panel-border);
+  overflow-y: auto;
+  max-height: 480px;
+}
+
+#side-panel h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.tower-card {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.tower-card:hover {
+  border-color: var(--accent);
+}
+
+.tower-card.selected {
+  border-color: var(--accent);
+  background: rgba(78, 161, 255, 0.12);
+}
+
+.tower-card.affordable-no {
+  opacity: 0.5;
+}
+
+.tower-card .name {
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tower-card .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.tower-card .cost {
+  color: var(--gold);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.tower-card .desc {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+#selection-panel {
+  margin-top: 16px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 14px;
+}
+
+#selection-details {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+  margin-bottom: 10px;
+}
+
+#selection-details b {
+  color: var(--text);
+}
+
+#selection-panel button {
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+#btn-sell {
+  background: var(--danger);
+}
+
+.hidden {
+  display: none !important;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 10, 20, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+#overlay-box {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 28px 36px;
+  text-align: center;
+  min-width: 280px;
+}
+
+#overlay-title {
+  margin: 0 0 8px;
+  font-size: 26px;
+}
+
+#overlay-message {
+  color: var(--muted);
+  margin-bottom: 18px;
+}
+
+@media (max-width: 720px) {
+  #play-area {
+    flex-direction: column;
+  }
+  #side-panel {
+    width: 100%;
+    max-height: none;
+    border-left: none;
+    border-top: 1px solid var(--panel-border);
+  }
+  #game-canvas {
+    width: 100%;
+    height: auto;
+  }
+}
