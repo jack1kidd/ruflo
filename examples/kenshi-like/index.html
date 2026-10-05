@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dustlands - a Kenshi-like sandbox</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#111;color:#e8dcc4;font:13px/1.35 system-ui,sans-serif;user-select:none}
+canvas#c{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+.panel{background:rgba(22,18,14,.88);border:1px solid #5a4a36;border-radius:4px}
+#top{position:absolute;top:6px;left:6px;right:6px;display:flex;gap:14px;padding:5px 10px;align-items:center;pointer-events:none}
+#top b{color:#ffd27a}
+#top .btns{margin-left:auto;pointer-events:auto;display:flex;gap:4px}
+button{background:#3b2f22;color:#e8dcc4;border:1px solid #7a6446;border-radius:3px;padding:3px 9px;cursor:pointer;font:inherit}
+button:hover{background:#56442f}button:disabled{opacity:.4;cursor:default}
+#squad{position:absolute;left:6px;bottom:6px;display:flex;gap:6px}
+.card{width:122px;padding:5px;cursor:pointer;position:relative}
+.card.sel{border-color:#7fe36f;box-shadow:0 0 0 1px #7fe36f}
+.card .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .st{font-size:11px;opacity:.8}
+.bar{width:66%;height:5px;background:#000;margin:3px 0;border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%}
+.card svg{position:absolute;right:4px;top:22px}
+#info{position:absolute;top:46px;right:6px;width:200px;padding:8px;display:none}
+#info h4{margin:0 0 4px;color:#ffd27a}
+#info div{display:flex;justify-content:space-between}
+#log{position:absolute;left:6px;bottom:112px;width:380px;pointer-events:none}
+#log div{padding:1px 6px;margin-top:1px;background:rgba(0,0,0,.45);border-radius:2px;transition:opacity 1s}
+#mini{position:absolute;right:6px;bottom:6px;width:170px;height:170px;border:2px solid #5a4a36;background:#000;image-rendering:pixelated}
+#build{position:absolute;left:50%;transform:translateX(-50%);bottom:6px;padding:6px;display:none;gap:6px}
+#modal{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}
+#modal .box{min-width:340px;max-width:460px;padding:14px}
+#modal h3{margin:0 0 8px;color:#ffd27a}
+#modal .row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:4px 0}
+#help{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:16px 20px;max-width:520px}
+#help h2{margin:0 0 6px;color:#ffd27a}#help kbd{background:#000;border:1px solid #6a5a46;border-radius:3px;padding:0 5px}
+#over{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(40,0,0,.7);font-size:22px;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="top" class="panel"></div>
+<div id="info" class="panel"></div>
+<div id="log"></div>
+<div id="squad"></div>
+<canvas id="mini" width="170" height="170"></canvas>
+<div id="build" class="panel"></div>
+<div id="modal"><div class="box panel"></div></div>
+<div id="over"><div>Your squad has perished in the Dustlands.<br><br><button onclick="location.reload()">Start a new life</button></div></div>
+<div id="help" class="panel">
+<h2>DUSTLANDS</h2>
+<p>A harsh, lawless desert. No quests, no chosen one. Survive, get strong, build something.</p>
+<p><kbd>Left-click / drag</kbd> select &nbsp; <kbd>Right-click</kbd> order: move, attack, mine ore, loot corpses, heal ally, talk to traders, use a bed.<br>
+<kbd>WASD</kbd>/arrows or middle-drag to pan, <kbd>wheel</kbd> zoom, <kbd>1-9</kbd> pick squad member, <kbd>Space</kbd> pause, <kbd>Q</kbd>/<kbd>E</kbd> game speed, <kbd>B</kbd> build, <kbd>H</kbd> this help.</p>
+<p>Limbs get hurt separately. Bleeding drains blood; low blood or a wrecked head/chest knocks you out. Bandages (buy in towns) stop bleeding and heal. Skills level up by use. Bandits will rob a squad they knock out; hounds will eat it.</p>
+<button onclick="document.getElementById('help').style.display='none'">Begin</button>
+</div>
+<script>
+'use strict';
+// ───────────────────────── constants & helpers ─────────────────────────
+const T = 40, MW = 120, MH = 120, WW = MW * T, WH = MH * T, DAY = 360;
+const SEED = +(new URLSearchParams(location.search).get('seed')) || Math.floor(Math.random() * 1e6);
+const R = Math.random, clamp = (v, a, b) => v < a ? a : v > b ? b : v, dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const ri = (a, b) => a + Math.floor(R() * (b - a + 1)), pick = a => a[Math.floor(R() * a.length)];
+let ws = SEED; const rnd = () => { ws |= 0; ws = ws + 0x6D2B79F5 | 0; let t = Math.imul(ws ^ ws >>> 15, 1 | ws); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const hash = (x, y) => { const h = Math.sin(x * 127.1 + y * 311.7 + SEED * .013) * 43758.5453; return h - Math.floor(h); };
+const vn = (x, y) => { const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1); return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy; };
+const fbm = (x, y) => { let v = 0, a = .5, f = 1; for (let i = 0; i < 4; i++) { v += a * vn(x * f, y * f); f *= 2; a *= .5; } return v; };
+
+const PARTS = ['head', 'chest', 'stomach', 'lArm', 'rArm', 'lLeg', 'rLeg'];
+const PMAX = { head: 60, chest: 100, stomach: 80, lArm: 70, rArm: 70, lLeg: 70, rLeg: 70 };
+const PW = { head: 10, chest: 26, stomach: 16, lArm: 12, rArm: 12, lLeg: 12, rLeg: 12 };
+const WEAP = {
+  fists:  { n: 'Fists', dmg: [4, 8], rng: 20, cd: .9, cost: 0 },
+  fangs:  { n: 'Fangs', dmg: [7, 13], rng: 20, cd: .8, cost: 0 },
+  club:   { n: 'Club', dmg: [8, 14], rng: 26, cd: 1.1, cost: 45 },
+  rust:   { n: 'Rusty Blade', dmg: [11, 19], rng: 30, cd: 1.1, cost: 120 },
+  katana: { n: 'Katana', dmg: [19, 30], rng: 36, cd: 1.0, cost: 520 }
+};
+const ARM = { none: { n: 'Rags', v: 0, cost: 0 }, wrap: { n: 'Cloth Wraps', v: .12, cost: 60 }, leather: { n: 'Leather Coat', v: .27, cost: 220 }, plate: { n: 'Plate Armor', v: .45, cost: 800 } };
+const FAC = { player: '#4fc3f7', guard: '#9ccc65', bandit: '#e5533d', beast: '#a1887f', npc: '#ffd54f' };
+const NAMES = ['Kai', 'Mara', 'Dorn', 'Vex', 'Sable', 'Rook', 'Tamsin', 'Hale', 'Ione', 'Brask', 'Quill', 'Orrin', 'Nessa', 'Jory', 'Wren', 'Cade', 'Lysa', 'Thane', 'Pike', 'Edda'];
+const SKN = { melee: 'Melee', str: 'Strength', dex: 'Dexterity', tough: 'Toughness', medic: 'Medic', mine: 'Mining' };
+
+// ───────────────────────── world ─────────────────────────
+const type = new Uint8Array(MW * MH), vari = new Uint8Array(MW * MH);
+// 0 sand 1 dust 2 rock 3 scrub 4 cliff(solid) 5 building(solid) 6 wall(solid)
+const PAL = [['#cdaa6c', '#c6a367', '#d2b072', '#c9a669'], ['#b48f58', '#ab8852', '#bb965f', '#b18c55'], ['#8c8174', '#857a6d', '#938878', '#8a7f71'], ['#8f9a58', '#889352', '#98a35f', '#8d985b'], ['#4b4037', '#443a31', '#52463c', '#4a3f35']];
+const solidT = (tx, ty) => tx < 0 || ty < 0 || tx >= MW || ty >= MH || type[ty * MW + tx] >= 4;
+const blocked = (x, y, r) => solidT(Math.floor((x - r) / T), Math.floor((y - r) / T)) || solidT(Math.floor((x + r) / T), Math.floor((y - r) / T)) || solidT(Math.floor((x - r) / T), Math.floor((y + r) / T)) || solidT(Math.floor((x + r) / T), Math.floor((y + r) / T));
+const G = { t: DAY * .35, speed: 1, paused: false, cats: 250, inv: { food: 6, ore: 0, bandage: 3 }, units: [], sel: [], towns: [], camps: [], ore: [], beds: [], fx: [], build: null, over: false };
+
+function genWorld() {
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const h = fbm(x / 16, y / 16), m = fbm(x / 22 + 90, y / 22 + 40); let t = 0;
+    if (x < 2 || y < 2 || x >= MW - 2 || y >= MH - 2 || h > .66) t = 4; else if (h > .57) t = 2; else if (m > .6 && h < .5) t = 3; else if (m < .38) t = 1;
+    type[y * MW + x] = t; vari[y * MW + x] = Math.floor(rnd() * 4);
+  }
+}
+function carve(px, py, rad) { // flatten an area so camps/towns are reachable
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (Math.hypot(x * T + T / 2 - px, y * T + T / 2 - py) < rad && x > 1 && y > 1 && x < MW - 2 && y < MH - 2) type[y * MW + x] = 0;
+}
+function mkBuilding(tx, ty, w, h) { for (let y = ty; y < ty + h; y++) for (let x = tx; x < tx + w; x++) type[y * MW + x] = 5; return { x: tx * T, y: ty * T, w: w * T, h: h * T }; }
+
+// ───────────────────────── units ─────────────────────────
+let uid = 0;
+function mkUnit(o) {
+  const u = Object.assign({ id: ++uid, x: 0, y: 0, r: 9, name: pick(NAMES), fac: 'npc', state: 'ok', blood: 100, hunger: R() * 60, koT: 0, cd: 0, face: R() * 6.28, swing: 0, weapon: 'fists', armor: 'none',
+    order: null, path: null, pk: '', rp: 0, work: 0, think: R(), idle: R() * 3, home: null, leash: 700, sight: 280, inv: { cats: 0, food: 0, bandage: 0 }, loot: null, robbedT: 0, resting: false, xp: {} }, o);
+  u.hp = {}; u.bl = {}; PARTS.forEach(p => { u.hp[p] = PMAX[p]; u.bl[p] = 0; });
+  u.sk = Object.assign({ melee: 8, str: 8, dex: 8, tough: 8, medic: 5, mine: 5 }, o.sk || {});
+  u.home = u.home || { x: u.x, y: u.y }; G.units.push(u); return u;
+}
+const alive = u => u.state !== 'dead';
+const bleedOf = u => PARTS.reduce((s, p) => s + u.bl[p], 0);
+const hostile = (a, b) => { const f = a.fac, g = b.fac; if (f === g || f === 'npc' || g === 'npc') return false; if (f === 'beast' || g === 'beast') return true; return f === 'bandit' || g === 'bandit'; };
+function say(txt, col) { const d = document.createElement('div'); d.textContent = txt; if (col) d.style.color = col; const l = document.getElementById('log'); l.appendChild(d); while (l.children.length > 7) l.firstChild.remove(); setTimeout(() => d.style.opacity = 0, 6000); setTimeout(() => d.remove(), 7200); }
+const fx = (x, y, txt, col) => G.fx.push({ x, y, txt, col: col || '#fff', t: 1.1 });
+function gain(u, k, a) { if (u.fac !== 'player') return; u.xp[k] = (u.xp[k] || 0) + a; if (u.xp[k] >= u.sk[k] * 1.6 + 8 && u.sk[k] < 100) { u.xp[k] = 0; u.sk[k]++; fx(u.x, u.y - 22, SKN[k] + ' ' + u.sk[k], '#ffd27a'); } }
+const squad = () => G.units.filter(u => u.fac === 'player' && alive(u));
+const speedOf = u => { let v = 60 + u.sk.dex * .55 + (u.sk.str > 30 ? 4 : 0); const l = (u.hp.lLeg <= 0) + (u.hp.rLeg <= 0); if (l === 1) v *= .45; else if (l === 2) v *= .15; if (u.hunger > 250) v *= .8; return v; };
+const canFight = u => !(u.hp.lArm <= 0 && u.hp.rArm <= 0);
+function spawnPlayer(x, y, o) { const u = mkUnit(Object.assign({ x, y, fac: 'player', sk: { melee: ri(6, 14), str: ri(6, 14), dex: ri(6, 14), tough: ri(5, 12), medic: ri(3, 9), mine: ri(3, 9) } }, o)); return u; }
+
+// ───────────────────────── pathfinding ─────────────────────────
+function clear(x1, y1, x2, y2) { const d = Math.hypot(x2 - x1, y2 - y1), n = Math.ceil(d / 12); for (let i = 1; i <= n; i++) { const k = i / n; if (blocked(x1 + (x2 - x1) * k, y1 + (y2 - y1) * k, 7)) return false; } return true; }
+function findPath(sx, sy, ex, ey) {
+  let s = [clamp(Math.floor(sx / T), 0, MW - 1), clamp(Math.floor(sy / T), 0, MH - 1)], e = [clamp(Math.floor(ex / T), 0, MW - 1), clamp(Math.floor(ey / T), 0, MH - 1)];
+  if (solidT(e[0], e[1])) { let best = null, bd = 1e9; for (let r = 1; r < 6 && !best; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (!solidT(e[0] + dx, e[1] + dy)) { const d = dx * dx + dy * dy; if (d < bd) { bd = d; best = [e[0] + dx, e[1] + dy]; } } if (!best) return null; e = best; }
+  const N = MW * MH, g = new Float32Array(N).fill(1e9), par = new Int32Array(N).fill(-1), closed = new Uint8Array(N), heap = [];
+  const hf = (x, y) => { const dx = Math.abs(x - e[0]), dy = Math.abs(y - e[1]); return (dx + dy) + (1.414 - 2) * Math.min(dx, dy); };
+  const push = (f, i) => { heap.push([f, i]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { let l = 2 * k + 1, r = l + 1, m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  const si = s[1] * MW + s[0], ei = e[1] * MW + e[0]; g[si] = 0; push(hf(s[0], s[1]), si); let it = 0, found = false;
+  while (heap.length && it++ < 5000) {
+    const [, i] = pop(); if (closed[i]) continue; closed[i] = 1; if (i === ei) { found = true; break; }
+    const x = i % MW, y = (i / MW) | 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue; const nx = x + dx, ny = y + dy; if (solidT(nx, ny)) continue; if (dx && dy && (solidT(x + dx, y) || solidT(x, y + dy))) continue;
+      const ni = ny * MW + nx, ng = g[i] + (dx && dy ? 1.414 : 1); if (ng < g[ni]) { g[ni] = ng; par[ni] = i; push(ng + hf(nx, ny), ni); }
+    }
+  }
+  if (!found) return null;
+  let pts = [], i = ei; while (i !== si && i !== -1) { pts.push({ x: (i % MW) * T + T / 2, y: ((i / MW) | 0) * T + T / 2 }); i = par[i]; } pts.reverse();
+  pts.push({ x: ex, y: ey }); if (solidT(Math.floor(ex / T), Math.floor(ey / T))) pts.pop();
+  const out = []; let cur = { x: sx, y: sy }, k = 0; // string pulling
+  while (k < pts.length) { let j = k; while (j + 1 < pts.length && clear(cur.x, cur.y, pts[j + 1].x, pts[j + 1].y)) j++; out.push(pts[j]); cur = pts[j]; k = j + 1; }
+  return out;
+}
+function goto(u, x, y, dt, arr) {
+  const d = Math.hypot(x - u.x, y - u.y); if (d <= arr) return true;
+  let tx = x, ty = y; u.rp -= dt;
+  if (clear(u.x, u.y, x, y)) u.path = null;
+  else { const key = (x >> 5) + ',' + (y >> 5); if (!u.path || u.pk !== key || u.rp <= 0) { u.path = findPath(u.x, u.y, x, y); u.pk = key; u.rp = 1 + R() * .5; }
+    if (u.path) { while (u.path.length > 1 && Math.hypot(u.path[0].x - u.x, u.path[0].y - u.y) < 10) u.path.shift(); if (u.path.length) { tx = u.path[0].x; ty = u.path[0].y; } } }
+  const dd = Math.hypot(tx - u.x, ty - u.y) || 1, step = Math.min(speedOf(u) * dt, dd), dx = (tx - u.x) / dd * step, dy = (ty - u.y) / dd * step;
+  u.face = Math.atan2(ty - u.y, tx - u.x);
+  if (!blocked(u.x + dx, u.y, 6)) u.x += dx; if (!blocked(u.x, u.y + dy, 6)) u.y += dy;
+  return false;
+}
+
+// ───────────────────────── combat ─────────────────────────
+function hit(a, b) {
+  const w = WEAP[a.weapon]; a.cd = w.cd * (1.35 - a.sk.dex / 200); a.swing = .22; a.face = Math.atan2(b.y - a.y, b.x - a.x);
+  let acc = clamp(.62 + (a.sk.melee - b.sk.dex * .6) / 150, .2, .95); if (b.state !== 'ok') acc = 1;
+  if (R() > acc) { fx(b.x, b.y - 14, 'miss', '#bbb'); gain(b, 'dex', .6); return; }
+  let d = (w.dmg[0] + R() * (w.dmg[1] - w.dmg[0])) * (.6 + a.sk.str / 60) * (.7 + a.sk.melee / 150);
+  d *= (1 - ARM[b.armor].v) * (1 - Math.min(.4, b.sk.tough / 250));
+  let roll = R() * 100, p = 'chest'; for (const k of PARTS) { roll -= PW[k]; if (roll <= 0) { p = k; break; } }
+  b.hp[p] = Math.max(b.hp[p] - d, p === 'head' || p === 'chest' ? -PMAX[p] * 1.2 : -PMAX[p]); b.bl[p] += d * .05;
+  fx(b.x, b.y - 14, Math.round(d), '#ff8a65'); gain(a, 'melee', 1.3); gain(a, 'str', .4); gain(b, 'tough', .9);
+  if (b.state === 'ok' && (!b.order || b.order.t !== 'attack') && b.fac !== 'player') b.order = { t: 'attack', tg: a };
+  if (b.fac === 'player' && b.state === 'ok' && !b.order) b.order = { t: 'attack', tg: a, auto: true };
+}
+function die(u) {
+  if (u.state === 'dead') return; u.state = 'dead'; u.order = null; u.resting = false; G.sel = G.sel.filter(s => s !== u);
+  if (u.fac === 'beast') u.inv.food += 2; if (u.fac === 'bandit') { u.inv.cats += ri(15, 70); if (R() < .35) u.inv.food += 1; if (R() < .25) u.inv.bandage += 1; }
+  if (u.fac === 'player') say(u.name + ' has died.', '#ff6b6b'); else if (u.fac !== 'npc') say(u.name + ' (' + u.fac + ') killed.', '#bbb');
+}
+function updUnit(u, dt) {
+  if (u.state === 'dead') return;
+  u.cd -= dt; u.swing -= dt; const bl = bleedOf(u);
+  for (const p of PARTS) u.bl[p] = Math.max(0, u.bl[p] - .015 * dt * (1 + u.sk.tough / 120));
+  u.blood -= bl * dt;
+  if (u.fac === 'player') { u.hunger += dt * .45; if (u.hunger >= 300) u.hp.chest -= 1.2 * dt; }
+  if (u.blood <= 0 || u.hp.head <= -PMAX.head || u.hp.chest <= -PMAX.chest) return die(u);
+  const fed = u.fac !== 'player' || u.hunger < 200, rest = u.resting ? 6 : 1;
+  if (fed) { for (const p of PARTS) if (u.hp[p] < PMAX[p]) u.hp[p] = Math.min(PMAX[p], u.hp[p] + .22 * dt * rest * (1 + u.sk.tough / 150)); if (bl < .05) u.blood = Math.min(100, u.blood + .25 * dt * rest); }
+  if (u.state === 'ok' && (u.blood < 32 || u.hp.head <= 0 || u.hp.chest <= 0)) { u.state = 'ko'; u.koT = 8; u.order = null; u.resting = false; if (u.fac === 'player') say(u.name + ' is unconscious!', '#ff9f43'); return; }
+  if (u.state === 'ko') { u.koT -= dt; if (u.koT <= 0 && u.blood >= 45 && u.hp.head > 0 && u.hp.chest > 0) { u.state = 'ok'; if (u.fac === 'player') say(u.name + ' wakes up.', '#9ccc65'); } return; }
+  if (u.fac === 'player') { // eat
+    if (u.hunger >= 100 && G.inv.food > 0) { G.inv.food--; u.hunger = Math.max(0, u.hunger - 110); fx(u.x, u.y - 14, 'nom', '#a5d6a7'); }
+  }
+  u.think -= dt; if (u.fac !== 'player' && u.think <= 0) { u.think = .35 + R() * .2; aiThink(u); }
+  if (u.fac === 'player' && !u.order) { if (u.think <= 0) { u.think = .4; autoPlayer(u); } }
+  runOrder(u, dt);
+}
+function needsCare(t) { return bleedOf(t) > .03 || PARTS.some(p => t.hp[p] < PMAX[p] * .55) || (t.state === 'ko' && t.blood < 60); }
+function autoPlayer(u) {
+  let best = null, bd = 220; for (const e of G.units) if (e.state === 'ok' && hostile(u, e) && canFight(u)) { const d = dist(u, e); if (d < bd) { bd = d; best = e; } }
+  if (best) { u.order = { t: 'attack', tg: best, auto: true }; return; }
+  if (G.inv.bandage > 0) for (const m of squad()) if (m !== u && dist(u, m) < 260 && needsCare(m)) { u.order = { t: 'heal', tg: m, auto: true }; return; }
+}
+function aiThink(u) {
+  const o = u.order;
+  if (o && (o.t === 'attack' || o.t === 'rob')) { const t = o.tg; if (!alive(t) || (o.t === 'attack' && t.state !== 'ok' && !(u.fac === 'beast')) || dist(u, t) > u.sight * 2 || dist(u, u.home) > u.leash * 1.5) u.order = null; else return; }
+  let best = null, bd = u.sight;
+  for (const e of G.units) { if (e === u || !alive(e) || !hostile(u, e)) continue; const d = dist(u, e); if (d >= bd) continue;
+    if (e.state === 'ok' || (e.state === 'ko' && (u.fac === 'beast' || (u.fac === 'bandit' && e.fac === 'player' && e.robbedT < G.t)))) { best = e; bd = d; } }
+  if (best && dist(u, u.home) < u.leash && canFight(u)) { u.order = { t: best.state === 'ko' && u.fac === 'bandit' ? 'rob' : 'attack', tg: best }; return; }
+  if (!u.order) { if (dist(u, u.home) > u.leash * .7) u.order = { t: 'move', x: u.home.x + R() * 80 - 40, y: u.home.y + R() * 80 - 40 };
+    else if ((u.idle -= .4) <= 0) { u.idle = 3 + R() * 6; if (!u.guardPost) { const a = R() * 6.28, r = R() * (u.roam || 110); u.order = { t: 'move', x: u.home.x + Math.cos(a) * r, y: u.home.y + Math.sin(a) * r }; } } }
+}
+function runOrder(u, dt) {
+  const o = u.order; if (u.resting && (!o || o.t !== 'rest')) u.resting = false; if (!o) return;
+  if (o.t === 'move') { if (goto(u, o.x, o.y, dt, 6)) u.order = null; }
+  else if (o.t === 'attack') {
+    const t = o.tg; if (!alive(t) || (o.auto && t.state !== 'ok') || !canFight(u)) { u.order = null; return; }
+    const w = WEAP[u.weapon], d = dist(u, t);
+    if (d <= w.rng + t.r) { u.face = Math.atan2(t.y - u.y, t.x - u.x); if (u.cd <= 0) hit(u, t); } else goto(u, t.x, t.y, dt, w.rng * .7);
+  }
+  else if (o.t === 'rob') { const t = o.tg; if (!alive(t)) { u.order = null; return; } if (goto(u, t.x, t.y, dt, 18)) {
+      const amt = Math.floor(G.cats * .4) + 5; G.cats = Math.max(0, G.cats - amt); const f = Math.floor(G.inv.food / 2); G.inv.food -= f; t.robbedT = G.t + 120;
+      say(u.name + ' robbed your squad of ' + amt + ' cats' + (f ? ' and ' + f + ' food' : '') + '!', '#ff6b6b'); u.order = null; u.home = { x: u.x, y: u.y }; } }
+  else if (o.t === 'mine') { const n = o.node; if (n.ore <= 0) { u.order = null; return; }
+    if (goto(u, n.x, n.y, dt, 24)) { u.work += dt * (.3 + u.sk.mine / 70); if (u.work >= 1) { u.work = 0; n.ore--; G.inv.ore++; fx(u.x, u.y - 14, '+ore', '#ffb74d'); gain(u, 'mine', 1.5); gain(u, 'str', .3); } } }
+  else if (o.t === 'loot') { const t = o.tg; if (goto(u, t.x, t.y, dt, 22)) { const l = t.inv; let s = []; if (l.cats) { G.cats += l.cats; s.push(l.cats + ' cats'); } if (l.food) { G.inv.food += l.food; s.push(l.food + ' food'); } if (l.bandage) { G.inv.bandage += l.bandage; s.push(l.bandage + ' bandage'); }
+      if (t.weapon !== 'fists' && WEAP[t.weapon].cost > WEAP[u.weapon].cost) { u.weapon = t.weapon; s.push(WEAP[t.weapon].n); t.weapon = 'fists'; }
+      t.inv = { cats: 0, food: 0, bandage: 0 }; say(u.name + ' looted ' + (s.join(', ') || 'nothing') + '.'); u.order = null; } }
+  else if (o.t === 'heal') { const t = o.tg; if (!alive(t)) { u.order = null; return; }
+    if (goto(u, t.x, t.y, dt, 20)) { if (!needsCare(t) && bleedOf(t) < .01 && PARTS.every(p => t.hp[p] >= PMAX[p] - 1)) { u.order = null; return; }
+      if (G.inv.bandage <= 0) { say('Out of bandages!', '#ff9f43'); u.order = null; return; }
+      u.work += dt; if (u.work >= 1.5) { u.work = 0; if (bleedOf(t) > .01 || PARTS.some(p => t.hp[p] < PMAX[p] * .9)) { G.inv.bandage--; PARTS.forEach(p => t.bl[p] = 0); } }
+      const h = (4 + u.sk.medic * .25) * dt; PARTS.forEach(p => { if (t.hp[p] < PMAX[p]) t.hp[p] = Math.min(PMAX[p], t.hp[p] + h); }); t.blood = Math.min(100, t.blood + 1.5 * dt); gain(u, 'medic', dt * .9); } }
+  else if (o.t === 'rest') { if (goto(u, o.bed.x, o.bed.y, dt, 8)) { u.resting = true; if (PARTS.every(p => u.hp[p] >= PMAX[p] - 1) && u.blood >= 99) { u.resting = false; u.order = null; } } }
+  else if (o.t === 'talk') { const t = o.tg; if (goto(u, t.x, t.y, dt, 42)) { u.order = null; openNpc(t, u); } }
+}
+function separate() {
+  const a = G.units; for (let i = 0; i < a.length; i++) { const u = a[i]; if (u.state !== 'ok') continue;
+    for (let j = i + 1; j < a.length; j++) { const v = a[j]; if (v.state !== 'ok') continue; const dx = v.x - u.x, dy = v.y - u.y, d = Math.hypot(dx, dy), m = u.r + v.r - 3;
+      if (d < m && d > .01) { const p = (m - d) * .3, nx = dx / d * p, ny = dy / d * p; if (!blocked(u.x - nx, u.y - ny, 6)) { u.x -= nx; u.y -= ny; } if (!blocked(v.x + nx, v.y + ny, 6)) { v.x += nx; v.y += ny; } } } }
+}
+
+// ───────────────────────── populate ─────────────────────────
+function mkRecruit() { const sk = { melee: ri(5, 28), str: ri(5, 25), dex: ri(5, 25), tough: ri(5, 25), medic: ri(2, 22), mine: ri(2, 22) }; return { name: pick(NAMES), sk, cost: 90 + Object.values(sk).reduce((a, b) => a + b, 0) * 3 }; }
+function populate() {
+  const spots = [[2400, 2400, 'Hub'], [900, 1000, 'Dustwatch'], [3900, 1300, 'Stonegate'], [1200, 3800, 'Saltmarket'], [3900, 3800, 'Ashfall']];
+  spots.forEach(([x, y, name]) => { carve(x, y, 360); const tx = Math.floor(x / T), ty = Math.floor(y / T); const bs = [mkBuilding(tx - 7, ty - 5, 5, 4), mkBuilding(tx + 2, ty - 5, 5, 4), mkBuilding(tx - 7, ty + 2, 5, 4), mkBuilding(tx + 2, ty + 2, 5, 4)];
+    const town = { name, x, y, bs, recruits: [mkRecruit(), mkRecruit(), mkRecruit()] }; G.towns.push(town);
+    const tr = mkUnit({ x: x - 60, y: y, fac: 'npc', name: 'Trader', role: 'trader', town, guardPost: 1, roam: 0 }); const ba = mkUnit({ x: x + 60, y: y, fac: 'npc', name: 'Barkeep', role: 'recruit', town, guardPost: 1, roam: 0 });
+    for (let i = 0; i < 4; i++) { const a = i * 1.57 + .5; mkUnit({ x: x + Math.cos(a) * 130, y: y + Math.sin(a) * 130, fac: 'guard', name: 'Guard', weapon: 'rust', armor: 'leather', sk: { melee: 30, str: 25, dex: 25, tough: 25 }, leash: 420, sight: 340, roam: 130 }); } });
+  const far = (x, y, m) => spots.every(s => Math.hypot(s[0] - x, s[1] - y) > m);
+  let n = 0; while (n < 6) { const x = ri(300, WW - 300), y = ri(300, WH - 300); if (!far(x, y, 700) || G.camps.some(c => Math.hypot(c.x - x, c.y - y) < 600)) continue; n++; carve(x, y, 150); G.camps.push({ x, y });
+    const cnt = ri(4, 7); for (let i = 0; i < cnt; i++) mkUnit({ x: x + R() * 120 - 60, y: y + R() * 120 - 60, fac: 'bandit', name: 'Bandit', weapon: pick(['fists', 'club', 'club', 'rust']), armor: pick(['none', 'none', 'wrap']), sk: { melee: ri(8, 24), str: ri(8, 20), dex: ri(8, 20), tough: ri(6, 18) }, leash: 520, sight: 300, roam: 90 }); }
+  n = 0; while (n < 9) { const x = ri(200, WW - 200), y = ri(200, WH - 200); if (!far(x, y, 650) || solidT(Math.floor(x / T), Math.floor(y / T))) continue; n++; carve(x, y, 60);
+    for (let i = 0; i < ri(2, 4); i++) mkUnit({ x: x + R() * 80 - 40, y: y + R() * 80 - 40, fac: 'beast', name: 'Sand Hound', r: 10, weapon: 'fangs', sk: { melee: ri(10, 22), str: ri(10, 18), dex: ri(14, 26), tough: ri(6, 14) }, leash: 600, sight: 260, roam: 160 }); }
+  n = 0; while (n < 70) { const tx = ri(3, MW - 4), ty = ri(3, MH - 4); const t = type[ty * MW + tx]; if (t !== 2 && !(t === 1 && R() < .08)) continue; n++; G.ore.push({ x: tx * T + T / 2, y: ty * T + T / 2, ore: ri(6, 14) }); }
+  const s = [spots[0][0] + 230, spots[0][1] + 40]; carve(s[0], s[1], 80);
+  spawnPlayer(s[0], s[1], { name: 'Kai', sk: { melee: 14, str: 12, dex: 12, tough: 10, medic: 4, mine: 4 } }); spawnPlayer(s[0] + 26, s[1] + 14, { name: 'Mara', sk: { melee: 8, str: 8, dex: 12, tough: 8, medic: 16, mine: 6 } }); spawnPlayer(s[0] + 4, s[1] + 34, { name: 'Dorn', sk: { melee: 10, str: 14, dex: 8, tough: 14, medic: 3, mine: 14 } });
+  G.sel = [squad()[0]]; cam.x = s[0] - innerWidth / 2; cam.y = s[1] - innerHeight / 2;
+}
+
+// ───────────────────────── UI ─────────────────────────
+const cv = document.getElementById('c'), ctx = cv.getContext('2d'), mini = document.getElementById('mini'), mctx = mini.getContext('2d');
+const cam = { x: 0, y: 0, z: 1 }; let mouse = { x: 0, y: 0, wx: 0, wy: 0 }, drag = null, mdrag = null; const keys = {};
+const $ = id => document.getElementById(id);
+function el(tag, txt, fn) { const e = document.createElement(tag); if (txt != null) e.textContent = txt; if (fn) e.onclick = fn; return e; }
+function modal(title, rows) { const m = $('modal'), b = m.firstElementChild; b.innerHTML = ''; b.appendChild(el('h3', title)); rows.forEach(r => b.appendChild(r)); const c = el('button', 'Close', () => m.style.display = 'none'); c.style.marginTop = '8px'; b.appendChild(c); m.style.display = 'flex'; }
+function row(label, btns) { const r = el('div'); r.className = 'row'; r.appendChild(el('span', label)); const d = el('span'); btns.forEach(b => d.appendChild(b)); r.appendChild(d); return r; }
+function openNpc(npc, u) {
+  if (npc.role === 'recruit') { const t = npc.town, draw = () => modal(t.name + ' Bar - drifters for hire (' + Math.floor(G.cats) + ' cats)', t.recruits.map((r, i) => row(r.name + '  M' + r.sk.melee + ' S' + r.sk.str + ' D' + r.sk.dex + ' T' + r.sk.tough + ' Med' + r.sk.medic + ' Mn' + r.sk.mine, [el('button', 'Hire ' + r.cost, () => { if (G.cats < r.cost) return say('Not enough cats.', '#ff9f43'); G.cats -= r.cost; spawnPlayer(u.x + 20, u.y + 20, { name: r.name, sk: r.sk }); t.recruits[i] = mkRecruit(); say(r.name + ' joins your squad.', '#7fe36f'); draw(); })]))); draw(); return; }
+  const draw = () => { const rows = [];
+    const buy = (lab, cost, fn) => rows.push(row(lab, [el('button', 'Buy ' + cost, () => { if (G.cats < cost) return say('Not enough cats.', '#ff9f43'); G.cats -= cost; fn(); draw(); })]));
+    rows.push(row('Cats: ' + Math.floor(G.cats) + '  Ore: ' + G.inv.ore, [el('button', 'Sell all ore (22 ea)', () => { G.cats += G.inv.ore * 22; G.inv.ore = 0; draw(); })]));
+    buy('Food ration', 12, () => G.inv.food++); buy('Bandage', 30, () => G.inv.bandage++);
+    ['club', 'rust', 'katana'].forEach(k => buy(WEAP[k].n + ' (' + WEAP[k].dmg.join('-') + ') -> ' + u.name, WEAP[k].cost, () => u.weapon = k));
+    ['wrap', 'leather', 'plate'].forEach(k => buy(ARM[k].n + ' (-' + Math.round(ARM[k].v * 100) + '% dmg) -> ' + u.name, ARM[k].cost, () => u.armor = k));
+    modal(npc.town.name + ' Trader', rows); }; draw();
+}
+function buildBar() { const b = $('build'); b.innerHTML = ''; b.style.display = 'flex'; b.appendChild(el('span', 'BUILD (right-click cancels):')); [['wall', 'Wall - 4 ore'], ['bed', 'Bed - 10 ore']].forEach(([k, l]) => { const x = el('button', l, () => { G.build = k; }); b.appendChild(x); }); b.appendChild(el('button', 'Done', () => { G.build = null; b.style.display = 'none'; })); }
+function bodySvg(u) { const c = p => { const r = u.hp[p] / PMAX[p]; return r > .66 ? '#6fbf5f' : r > .33 ? '#e0c040' : r > 0 ? '#e07a30' : '#c0302a'; };
+  return `<svg width="36" height="52" viewBox="0 0 36 52"><circle cx="18" cy="6" r="5.5" fill="${c('head')}"/><rect x="11" y="13" width="14" height="13" fill="${c('chest')}"/><rect x="12" y="27" width="12" height="9" fill="${c('stomach')}"/><rect x="3" y="13" width="7" height="18" fill="${c('lArm')}"/><rect x="26" y="13" width="7" height="18" fill="${c('rArm')}"/><rect x="11" y="37" width="6" height="14" fill="${c('lLeg')}"/><rect x="19" y="37" width="6" height="14" fill="${c('rLeg')}"/></svg>`; }
+let hudT = 0;
+function hud() {
+  const ph = (G.t / DAY) % 1, hr = Math.floor(ph * 24), mn = Math.floor((ph * 24 % 1) * 60), day = Math.floor(G.t / DAY) + 1;
+  const bs = squad().filter(u => u.state === 'ok').length;
+  $('top').innerHTML = `<span>Day <b>${day}</b> ${String(hr).padStart(2, '0')}:${String(mn).padStart(2, '0')}</span><span>Cats <b>${Math.floor(G.cats)}</b></span><span>Food <b>${G.inv.food}</b></span><span>Ore <b>${G.inv.ore}</b></span><span>Bandages <b>${G.inv.bandage}</b></span><span>${G.paused ? '<b>PAUSED</b>' : 'x' + G.speed}</span><span class="btns"><button onclick="G.paused=!G.paused">Pause</button><button onclick="G.speed=Math.max(1,G.speed/2)">Slower</button><button onclick="G.speed=Math.min(4,G.speed*2)">Faster</button><button onclick="buildBar()">Build</button><button onclick="document.getElementById('help').style.display='block'">Help</button></span>`;
+  const sq = squad(); const host = $('squad'); host.innerHTML = '';
+  sq.forEach((u, i) => { const c = el('div'); c.className = 'card panel' + (G.sel.includes(u) ? ' sel' : ''); const bl = clamp(u.blood, 0, 100), hg = clamp(100 - u.hunger / 3, 0, 100);
+    c.innerHTML = `<div class="nm">${i + 1}. ${u.name}</div><div class="st">${u.state === 'ko' ? 'UNCONSCIOUS' : u.resting ? 'resting' : u.order ? u.order.t : 'idle'}</div><div class="bar"><i style="width:${bl}%;background:#d33"></i></div><div class="bar"><i style="width:${hg}%;background:#db3"></i></div>${bodySvg(u)}`;
+    c.onclick = e => { G.sel = e.shiftKey ? (G.sel.includes(u) ? G.sel.filter(x => x !== u) : [...G.sel, u]) : [u]; }; host.appendChild(c); });
+  const info = $('info'), s = G.sel[0];
+  if (s && alive(s)) { info.style.display = 'block'; info.innerHTML = `<h4>${s.name}</h4><div><span>Weapon</span><span>${WEAP[s.weapon].n}</span></div><div><span>Armor</span><span>${ARM[s.armor].n}</span></div><div><span>Blood</span><span>${Math.round(s.blood)}%</span></div><div><span>Bleeding</span><span>${bleedOf(s).toFixed(2)}/s</span></div><hr>` + Object.keys(SKN).map(k => `<div><span>${SKN[k]}</span><span>${s.sk[k]}</span></div>`).join(''); } else info.style.display = 'none';
+  if (!sq.length && !G.over) { G.over = true; $('over').style.display = 'flex'; }
+}
+function drawMiniBase() { const c = document.createElement('canvas'); c.width = MW; c.height = MH; const x = c.getContext('2d'); for (let y = 0; y < MH; y++) for (let i = 0; i < MW; i++) { const t = type[y * MW + i]; x.fillStyle = PAL[Math.min(t, 4)][1]; x.fillRect(i, y, 1, 1); } return c; }
+
+// ───────────────────────── input ─────────────────────────
+const w2s = (x, y) => [(x - cam.x) * cam.z, (y - cam.y) * cam.z];
+function updMouse(e) { mouse.x = e.clientX; mouse.y = e.clientY; mouse.wx = cam.x + e.clientX / cam.z; mouse.wy = cam.y + e.clientY / cam.z; }
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('mousedown', e => { updMouse(e); if (e.button === 1) { mdrag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y }; e.preventDefault(); } else if (e.button === 0) drag = { x: e.clientX, y: e.clientY }; else if (e.button === 2) rightClick(); });
+addEventListener('mousemove', e => { updMouse(e); if (mdrag) { cam.x = mdrag.cx - (e.clientX - mdrag.x) / cam.z; cam.y = mdrag.cy - (e.clientY - mdrag.y) / cam.z; } });
+addEventListener('mouseup', e => { if (e.button === 1) mdrag = null; if (e.button !== 0 || !drag) return; updMouse(e);
+  const mv = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
+  if (mv < 5) { if (G.build) placeBuild(); else { let best = null, bd = 20; squad().forEach(u => { const d = Math.hypot(u.x - mouse.wx, u.y - mouse.wy); if (d < bd) { bd = d; best = u; } }); if (best) G.sel = e.shiftKey ? [...new Set([...G.sel, best])] : [best]; else if (!e.shiftKey) G.sel = []; } }
+  else { const x1 = Math.min(drag.x, e.clientX) / cam.z + cam.x, x2 = Math.max(drag.x, e.clientX) / cam.z + cam.x, y1 = Math.min(drag.y, e.clientY) / cam.z + cam.y, y2 = Math.max(drag.y, e.clientY) / cam.z + cam.y;
+    const hit = squad().filter(u => u.x >= x1 && u.x <= x2 && u.y >= y1 && u.y <= y2); G.sel = e.shiftKey ? [...new Set([...G.sel, ...hit])] : hit; }
+  drag = null; });
+cv.addEventListener('wheel', e => { e.preventDefault(); updMouse(e); const z0 = cam.z; cam.z = clamp(cam.z * (e.deltaY < 0 ? 1.12 : .89), .45, 2.2); cam.x += mouse.x / z0 - mouse.x / cam.z; cam.y += mouse.y / z0 - mouse.y / cam.z; }, { passive: false });
+addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; const k = e.key.toLowerCase(); if (k === ' ') { G.paused = !G.paused; e.preventDefault(); } else if (k === 'q') G.speed = Math.max(1, G.speed / 2); else if (k === 'e') G.speed = Math.min(4, G.speed * 2); else if (k === 'b') G.build ? (G.build = null, $('build').style.display = 'none') : buildBar(); else if (k === 'h') $('help').style.display = $('help').style.display === 'none' ? 'block' : 'none'; else if (/^[1-9]$/.test(k)) { const u = squad()[+k - 1]; if (u) { G.sel = [u]; cam.x = u.x - innerWidth / 2 / cam.z; cam.y = u.y - innerHeight / 2 / cam.z; } } });
+addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+mini.addEventListener('mousedown', e => { const r = mini.getBoundingClientRect(); cam.x = (e.clientX - r.left) / r.width * WW - innerWidth / 2 / cam.z; cam.y = (e.clientY - r.top) / r.height * WH - innerHeight / 2 / cam.z; });
+function placeBuild() { const tx = Math.floor(mouse.wx / T), ty = Math.floor(mouse.wy / T); if (solidT(tx, ty) || G.units.some(u => alive(u) && Math.hypot(u.x - (tx * T + T / 2), u.y - (ty * T + T / 2)) < T * .8)) return say('Cannot build there.', '#ff9f43');
+  const cost = G.build === 'wall' ? 4 : 10; if (G.inv.ore < cost) return say('Need ' + cost + ' ore.', '#ff9f43'); G.inv.ore -= cost;
+  if (G.build === 'wall') type[ty * MW + tx] = 6; else G.beds.push({ x: tx * T + T / 2, y: ty * T + T / 2 }); }
+function rightClick() {
+  if (G.build) { G.build = null; $('build').style.display = 'none'; return; }
+  const sel = G.sel.filter(u => u.state === 'ok'); if (!sel.length) return; const wx = mouse.wx, wy = mouse.wy;
+  let tu = null, bd = 18; G.units.forEach(u => { const d = Math.hypot(u.x - wx, u.y - wy); if (d < bd && !sel.includes(u)) { bd = d; tu = u; } });
+  let node = G.ore.find(n => n.ore > 0 && Math.hypot(n.x - wx, n.y - wy) < 26), bed = G.beds.find(b => Math.hypot(b.x - wx, b.y - wy) < 22);
+  const n = sel.length, cols = Math.ceil(Math.sqrt(n));
+  sel.forEach((u, i) => { u.path = null; u.resting = false;
+    if (tu) { if (tu.state === 'dead') u.order = { t: 'loot', tg: tu }; else if (hostile(u, tu)) u.order = { t: 'attack', tg: tu }; else if (tu.fac === 'player') u.order = { t: 'heal', tg: tu }; else if (tu.fac === 'npc') u.order = { t: 'talk', tg: tu }; else u.order = { t: 'move', x: tu.x, y: tu.y }; }
+    else if (node) u.order = { t: 'mine', node }; else if (bed) u.order = { t: 'rest', bed };
+    else u.order = { t: 'move', x: wx + ((i % cols) - (cols - 1) / 2) * 26, y: wy + (Math.floor(i / cols) - (Math.ceil(n / cols) - 1) / 2) * 26 }; });
+}
+
+// ───────────────────────── render ─────────────────────────
+function ell(x, y, rx, ry, rot) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot || 0, 0, 6.2832); ctx.fill(); }
+function drawUnit(u) {
+  const col = FAC[u.fac]; ctx.save(); ctx.translate(u.x, u.y);
+  if (u.state === 'dead') { ctx.fillStyle = 'rgba(70,20,20,.6)'; ell(0, 0, u.r * 1.4, u.r * .9, u.face); ctx.fillStyle = '#2a2220'; ell(0, 0, u.r * 1.1, u.r * .6, u.face); ctx.restore(); return; }
+  if (u.state === 'ko') { ctx.fillStyle = 'rgba(0,0,0,.3)'; ell(0, 2, u.r * 1.3, u.r * .8, u.face); ctx.fillStyle = col; ctx.globalAlpha = .7; ell(0, 0, u.r * 1.2, u.r * .65, u.face); ctx.globalAlpha = 1; ctx.fillStyle = '#fff'; ctx.font = '10px sans-serif'; ctx.fillText('zZ', 6, -8); ctx.restore(); return; }
+  ctx.fillStyle = 'rgba(0,0,0,.28)'; ell(0, 3, u.r, u.r * .6);
+  if (u.fac === 'beast') { ctx.rotate(u.face); ctx.fillStyle = col; ell(0, 0, u.r * 1.3, u.r * .75); ctx.fillStyle = '#8d6e63'; ell(u.r * 1.1, 0, u.r * .55, u.r * .45); if (u.swing > 0) { ctx.fillStyle = '#fff'; ell(u.r * 1.7, 0, 3, 3); } }
+  else { ctx.fillStyle = col; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, u.r, 0, 6.2832); ctx.fill(); ctx.stroke();
+    if (ARM[u.armor].v > 0) { ctx.strokeStyle = ['#bbb', '#c9a', '#8a6a3c', '#cfd8dc'][['', 'wrap', 'leather', 'plate'].indexOf(u.armor)]; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(0, 0, u.r - 2, 0, 6.2832); ctx.stroke(); }
+    ctx.fillStyle = '#e8c9a0'; ell(Math.cos(u.face) * 4, Math.sin(u.face) * 4, 4.2, 4.2);
+    const sw = u.swing > 0 ? (.22 - u.swing) / .22 * 1.6 - .8 : 0; ctx.strokeStyle = u.weapon === 'fists' ? '#e8c9a0' : '#e0e0e0'; ctx.lineWidth = u.weapon === 'katana' ? 2 : 3; ctx.beginPath(); ctx.moveTo(Math.cos(u.face + .6) * u.r, Math.sin(u.face + .6) * u.r); const L = u.r + WEAP[u.weapon].rng * .55; ctx.lineTo(Math.cos(u.face + .6 + sw) * L, Math.sin(u.face + .6 + sw) * L); ctx.stroke(); }
+  ctx.restore();
+  const hurt = u.blood < 99 || PARTS.some(p => u.hp[p] < PMAX[p]); if (hurt || G.sel.includes(u)) { ctx.fillStyle = '#000'; ctx.fillRect(u.x - 12, u.y - u.r - 9, 24, 4); ctx.fillStyle = u.blood > 50 ? '#6fbf5f' : '#e05a30'; ctx.fillRect(u.x - 12, u.y - u.r - 9, 24 * clamp(u.blood, 0, 100) / 100, 4); }
+}
+function render() {
+  const W = cv.width = innerWidth, H = cv.height = innerHeight; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#222'; ctx.fillRect(0, 0, W, H);
+  cam.x = clamp(cam.x, -100, WW - W / cam.z + 100); cam.y = clamp(cam.y, -100, WH - H / cam.z + 100); ctx.setTransform(cam.z, 0, 0, cam.z, -cam.x * cam.z, -cam.y * cam.z);
+  const x0 = Math.max(0, Math.floor(cam.x / T)), y0 = Math.max(0, Math.floor(cam.y / T)), x1 = Math.min(MW - 1, Math.ceil((cam.x + W / cam.z) / T)), y1 = Math.min(MH - 1, Math.ceil((cam.y + H / cam.z) / T));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const t = type[y * MW + x]; if (t === 5) ctx.fillStyle = '#7d6a52'; else if (t === 6) ctx.fillStyle = '#5b4a3a'; else ctx.fillStyle = PAL[t][vari[y * MW + x]]; ctx.fillRect(x * T, y * T, T + .6, T + .6);
+    if (t === 4) { ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fillRect(x * T, y * T, T, 6); } else if (t === 6) { ctx.strokeStyle = '#2d241b'; ctx.strokeRect(x * T + 2, y * T + 2, T - 4, T - 4); } }
+  G.towns.forEach(t => t.bs.forEach(b => { ctx.fillStyle = '#6a563f'; ctx.fillRect(b.x, b.y, b.w, b.h); ctx.fillStyle = '#8d7656'; ctx.fillRect(b.x + 5, b.y + 5, b.w - 10, b.h - 10); ctx.strokeStyle = '#3b2e20'; ctx.lineWidth = 3; ctx.strokeRect(b.x, b.y, b.w, b.h); }));
+  G.camps.forEach(c => { ctx.fillStyle = '#3a2a1a'; ctx.beginPath(); ctx.arc(c.x, c.y, 7, 0, 6.3); ctx.fill(); ctx.fillStyle = `rgba(255,${120 + R() * 80 | 0},40,.9)`; ctx.beginPath(); ctx.arc(c.x, c.y, 4 + R() * 2, 0, 6.3); ctx.fill(); [[-34, -20], [30, -26], [-8, 34]].forEach(([dx, dy]) => { ctx.fillStyle = '#6b4a30'; ctx.beginPath(); ctx.moveTo(c.x + dx, c.y + dy - 16); ctx.lineTo(c.x + dx - 14, c.y + dy + 8); ctx.lineTo(c.x + dx + 14, c.y + dy + 8); ctx.fill(); }); });
+  G.ore.forEach(n => { if (n.ore <= 0 || n.x < cam.x - 40 || n.y < cam.y - 40 || n.x > cam.x + W / cam.z + 40 || n.y > cam.y + H / cam.z + 40) return; ctx.fillStyle = '#4e4640'; ell(n.x, n.y, 14, 10); ctx.fillStyle = '#d98a3a'; ell(n.x - 4, n.y - 2, 3, 3); ell(n.x + 5, n.y + 2, 2.5, 2.5); });
+  G.beds.forEach(b => { ctx.fillStyle = '#7a3f3f'; ctx.fillRect(b.x - 12, b.y - 9, 24, 18); ctx.fillStyle = '#d9c9a8'; ctx.fillRect(b.x - 12, b.y - 9, 8, 18); });
+  G.units.filter(u => u.state !== 'ok').forEach(drawUnit); G.units.filter(u => u.state === 'ok').sort((a, b) => a.y - b.y).forEach(u => {
+    if (G.sel.includes(u)) { ctx.strokeStyle = '#7fe36f'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(u.x, u.y + 4, u.r + 5, u.r * .7 + 4, 0, 0, 6.3); ctx.stroke(); } drawUnit(u); });
+  G.sel.forEach(u => { if (u.order && u.order.t === 'move') { ctx.strokeStyle = 'rgba(127,227,111,.6)'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(u.x, u.y); ctx.lineTo(u.order.x, u.order.y); ctx.stroke(); ctx.setLineDash([]); } });
+  ctx.font = '600 13px sans-serif'; ctx.textAlign = 'center'; G.towns.forEach(t => { ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText(t.name, t.x + 1, t.y - 106); ctx.fillStyle = '#ffe9a8'; ctx.fillText(t.name, t.x, t.y - 107); });
+  ctx.font = '10px sans-serif'; G.units.forEach(u => { if (u.role && alive(u)) { ctx.fillStyle = '#fff'; ctx.fillText(u.name, u.x, u.y - 14); } });
+  G.fx.forEach(f => { ctx.globalAlpha = clamp(f.t, 0, 1); ctx.fillStyle = f.col; ctx.font = '600 12px sans-serif'; ctx.fillText(f.txt, f.x, f.y - (1.1 - f.t) * 26); }); ctx.globalAlpha = 1;
+  if (G.build) { const tx = Math.floor(mouse.wx / T), ty = Math.floor(mouse.wy / T); ctx.fillStyle = solidT(tx, ty) ? 'rgba(255,0,0,.4)' : 'rgba(0,255,0,.35)'; ctx.fillRect(tx * T, ty * T, T, T); }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const ph = (G.t / DAY) % 1, light = clamp(.5 + .65 * Math.sin(2 * Math.PI * (ph - .25)), 0, 1); if (light < 1) { ctx.fillStyle = `rgba(8,12,38,${(1 - light) * .62})`; ctx.fillRect(0, 0, W, H); }
+  if (drag && Math.hypot(mouse.x - drag.x, mouse.y - drag.y) > 5) { ctx.strokeStyle = '#7fe36f'; ctx.fillStyle = 'rgba(127,227,111,.12)'; ctx.fillRect(drag.x, drag.y, mouse.x - drag.x, mouse.y - drag.y); ctx.strokeRect(drag.x, drag.y, mouse.x - drag.x, mouse.y - drag.y); }
+  mctx.clearRect(0, 0, 170, 170); mctx.drawImage(miniBase, 0, 0, 170, 170); const sx = 170 / WW, sy = 170 / WH;
+  G.towns.forEach(t => { mctx.fillStyle = '#ffd54f'; mctx.fillRect(t.x * sx - 3, t.y * sy - 3, 6, 6); }); G.camps.forEach(c => { mctx.fillStyle = '#e5533d'; mctx.fillRect(c.x * sx - 2, c.y * sy - 2, 4, 4); });
+  squad().forEach(u => { mctx.fillStyle = '#4fc3f7'; mctx.fillRect(u.x * sx - 1.5, u.y * sy - 1.5, 3, 3); }); mctx.strokeStyle = '#fff'; mctx.strokeRect(cam.x * sx, cam.y * sy, W / cam.z * sx, H / cam.z * sy);
+}
+
+// ───────────────────────── main loop ─────────────────────────
+let miniBase, last = performance.now();
+function frame(now) {
+  const real = Math.min(.1, (now - last) / 1000); last = now;
+  const pan = 700 / cam.z * real; if (keys.w || keys.arrowup) cam.y -= pan; if (keys.s || keys.arrowdown) cam.y += pan; if (keys.a || keys.arrowleft) cam.x -= pan; if (keys.d || keys.arrowright) cam.x += pan;
+  if (!G.paused && !G.over) { const steps = G.speed; for (let s = 0; s < steps; s++) { const dt = real; G.t += dt; G.units.forEach(u => updUnit(u, dt)); separate(); } }
+  G.fx.forEach(f => f.t -= real); G.fx = G.fx.filter(f => f.t > 0); G.ore = G.ore.filter(n => n.ore > 0);
+  if ((hudT -= real) <= 0) { hudT = .25; hud(); }
+  render(); requestAnimationFrame(frame);
+}
+genWorld(); populate(); miniBase = drawMiniBase(); hud(); window.G = G; window.__ready = true;
+say('You wake in the dust outside the Hub. Find food, steel and friends.');
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
